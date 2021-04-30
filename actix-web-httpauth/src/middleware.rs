@@ -39,7 +39,7 @@ impl<T, F, O> HttpAuthentication<T, F>
 where
     T: AuthExtractor,
     F: Fn(ServiceRequest, T) -> O,
-    O: Future<Output = Result<ServiceRequest, Error>>,
+    O: Future<Output = Result<ServiceRequest, ServiceResponse>>,
 {
     /// Construct `HttpAuthentication` middleware with the provided auth extractor `T` and
     /// validation callback `F`.
@@ -54,7 +54,7 @@ where
 impl<F, O> HttpAuthentication<basic::BasicAuth, F>
 where
     F: Fn(ServiceRequest, basic::BasicAuth) -> O,
-    O: Future<Output = Result<ServiceRequest, Error>>,
+    O: Future<Output = Result<ServiceRequest, ServiceResponse>>,
 {
     /// Construct `HttpAuthentication` middleware for the HTTP "Basic" authentication scheme.
     ///
@@ -86,7 +86,7 @@ where
 impl<F, O> HttpAuthentication<bearer::BearerAuth, F>
 where
     F: Fn(ServiceRequest, bearer::BearerAuth) -> O,
-    O: Future<Output = Result<ServiceRequest, Error>>,
+    O: Future<Output = Result<ServiceRequest, ServiceResponse>>,
 {
     /// Construct `HttpAuthentication` middleware for the HTTP "Bearer" authentication scheme.
     ///
@@ -124,7 +124,7 @@ where
         + 'static,
     S::Future: 'static,
     F: Fn(ServiceRequest, T) -> O + 'static,
-    O: Future<Output = Result<ServiceRequest, Error>> + 'static,
+    O: Future<Output = Result<ServiceRequest, ServiceResponse<B>>> + 'static,
     T: AuthExtractor + 'static,
 {
     type Request = ServiceRequest;
@@ -159,7 +159,7 @@ where
         + 'static,
     S::Future: 'static,
     F: Fn(ServiceRequest, T) -> O + 'static,
-    O: Future<Output = Result<ServiceRequest, Error>> + 'static,
+    O: Future<Output = Result<ServiceRequest, ServiceResponse<B>>> + 'static,
     T: AuthExtractor + 'static,
 {
     type Request = ServiceRequest;
@@ -186,10 +186,19 @@ where
 
             // TODO: alter to remove ? operator; an error response is required for downstream
             // middleware to do their thing (eg. cors adding headers)
-            let req = process_fn(req, credentials).await?;
+            //let req = process_fn(req, credentials).await?;
+            match process_fn(req, credentials).await {
+                Ok(req) => {
+                    let fut = service.borrow_mut().call(req);
+                    fut.await
+                },
+                Err(res) => {
+                    Ok(res)
+                },
+            }
             // Ensure `borrow_mut()` and `.await` are on separate lines or else a panic occurs.
-            let fut = service.borrow_mut().call(req);
-            fut.await
+            // let fut = service.borrow_mut().call(req);
+            // fut.await
         }
         .boxed_local()
     }
